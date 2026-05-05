@@ -22,8 +22,22 @@ from .dependencies import get_current_user, require_auth, require_roles
 from .models import AuthUser, SessionInfo, UserStore, SettingsStore
 from .middleware import CsrfMiddleware
 from .exceptions import AuthError, NotAuthenticatedError, ForbiddenError
+from .mailer import MailerConfig, MailerService, TemplateStore
+from .api_keys import ApiKey, ApiKeyService, ApiKeyStore, InMemoryApiKeyStore
+from .webhooks import (
+    WebhookConfig,
+    WebhookStore,
+    InMemoryWebhookStore,
+    WebhookSender,
+    OutgoingWebhookEvent,
+)
+from .sse import SseManager, StreamEvent
+from .tools import AuthTools, TelemetryStore, TelemetryEvent, InMemoryTelemetryStore
+from .tools_router import build_tools_router
+from .ui_router import build_ui_router
 
 __all__ = [
+    # Core
     "AuthConfig",
     "AuthConfigurator",
     "AuthUser",
@@ -31,10 +45,38 @@ __all__ = [
     "UserStore",
     "SettingsStore",
     "CsrfMiddleware",
+    # Dependencies
     "get_current_user",
     "require_auth",
     "require_roles",
+    # Exceptions
     "AuthError",
     "NotAuthenticatedError",
     "ForbiddenError",
+    # Mailer
+    "MailerConfig",
+    "MailerService",
+    "TemplateStore",
+    # API keys
+    "ApiKey",
+    "ApiKeyService",
+    "ApiKeyStore",
+    "InMemoryApiKeyStore",
+    # Webhooks
+    "WebhookConfig",
+    "WebhookStore",
+    "InMemoryWebhookStore",
+    "WebhookSender",
+    "OutgoingWebhookEvent",
+    # SSE
+    "SseManager",
+    "StreamEvent",
+    # Tools (telemetry + SSE + webhooks)
+    "AuthTools",
+    "TelemetryStore",
+    "TelemetryEvent",
+    "InMemoryTelemetryStore",
+    "build_tools_router",
+    # UI
+    "build_ui_router",
 ]

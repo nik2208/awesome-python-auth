@@ -72,6 +72,25 @@ class AuthConfig:
 
     on_link_verify(token, provider, login_after_linking) -> user_id | None:
         Called to verify an account-linking token.
+
+    on_register(stored_user):
+        Optional hook called immediately after a successful registration.
+        Use it to send welcome emails, provision resources, etc.
+
+    mailer:
+        Optional :class:`~awesome_python_auth.mailer.MailerConfig` instance.
+        When provided, the library uses :class:`~awesome_python_auth.mailer.MailerService`
+        for all transactional emails (password reset, verification, magic link, etc.)
+        in addition to the hook callbacks.
+
+    tools:
+        Optional :class:`~awesome_python_auth.tools.AuthTools` instance.
+        When provided, auth events are tracked (telemetry, SSE, webhooks).
+
+    api_key_store:
+        Optional :class:`~awesome_python_auth.api_keys.ApiKeyStore` instance.
+        When provided, ``GET /api-keys``, ``POST /api-keys``, and
+        ``DELETE /api-keys/{id}`` endpoints are enabled.
     """
 
     api_prefix: str = "/api/auth"
@@ -85,6 +104,19 @@ class AuthConfig:
     ui_config: dict[str, Any] | None = None
     email: dict[str, Any] | None = None
 
+    # ── Mailer ───────────────────────────────────────────────────────────────
+    # Optional: provide a MailerConfig to enable built-in email sending.
+    # When set, the library will use MailerService for all transactional emails.
+    mailer: Any = None  # MailerConfig | None
+
+    # ── AuthTools integration ─────────────────────────────────────────────────
+    # Optional: provide an AuthTools instance to enable telemetry, SSE, webhooks.
+    tools: Any = None  # AuthTools | None
+
+    # ── API Keys ─────────────────────────────────────────────────────────────
+    # Optional: provide an ApiKeyStore to enable API key auth on /api-keys/* endpoints.
+    api_key_store: Any = None  # ApiKeyStore | None
+
     # ── Hooks ────────────────────────────────────────────────────────────────
     on_forgot_password: Any = None
     on_send_verification_email: Any = None
@@ -95,6 +127,7 @@ class AuthConfig:
     on_sms_verify: Any = None
     on_link_request: Any = None
     on_link_verify: Any = None
+    on_register: Any = None  # async (stored_user) -> None  — called after registration
 
 
 # Import here to avoid circular dependency

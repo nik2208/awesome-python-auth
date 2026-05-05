@@ -778,21 +778,95 @@ class AuthConfigurator:
             return cfg.ui_config or {}
 
         # ── /tools/stream (SSE) ──────────────────────────────────────────────
+        # If cfg.tools is set and has an SseManager, use it; otherwise keep a
+        # minimal keep-alive generator for backwards compatibility.
 
         @router.get("/tools/stream")
         async def tools_stream(
+            request: Request,
             user: AuthUser | None = Depends(get_current_user),
         ) -> StreamingResponse:
-            async def _event_generator():
-                yield "data: {}\n\n"
+            tools = getattr(cfg, "tools", None)
+            if tools and getattr(tools, "sse", None):
+                user_id = user.sub if user else None
+                tenant_id = getattr(user, "tenant_id", None) if user else None
+                authorised = ["global"]
+                if tenant_id:
+                    authorised.append(f"tenant:{tenant_id}")
+                if user_id:
+                    authorised.append(f"user:{user_id}")
+                conn = tools.sse.connect(authorised, user_id=user_id, tenant_id=tenant_id)
+
+                import asyncio as _asyncio
+
+                async def _disconnect():
+                    try:
+                        await request.is_disconnected()
+                    except Exception:
+                        pass
+                    finally:
+                        tools.sse.disconnect(conn.id)
+
+                _asyncio.create_task(_disconnect())
+                return StreamingResponse(
+                    conn.__aiter__(),
+                    media_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                )
+
+            # Fallback: minimal keep-alive stream (no real SSE manager configured)
+            async def _ping():
+                yield ": connected\n\n"
 
             return StreamingResponse(
-                _event_generator(),
+                _ping(),
                 media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "X-Accel-Buffering": "no",
-                },
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
 
+        # ── /api-keys (API key management) ───────────────────────────────────
+        # Only mounted when cfg.api_key_store is set.
+
+        api_key_store = getattr(cfg, "api_key_store", None)
+        if api_key_store is not None:
+            from .api_keys import ApiKeyService as _ApiKeyService
+
+            _api_key_svc = _ApiKeyService()
+
+            @router.get("/api-keys")
+            async def list_api_keys(
+                user: AuthUser = Depends(require_auth),
+            ) -> dict:
+                keys = await api_key_store.list_all(service_id=user.sub)
+                return {"keys": [k.to_api_dict() for k in keys]}
+
+            @router.post("/api-keys", status_code=201)
+            async def create_api_key(
+                request: Request,
+                user: AuthUser = Depends(require_auth),
+            ) -> dict:
+                body: dict = await request.json() if await _has_body(request) else {}
+                result = await _api_key_svc.create_key(
+                    api_key_store,
+                    name=body.get("name", "API Key"),
+                    service_id=user.sub,
+                    scopes=body.get("scopes", []),
+                    allowed_ips=body.get("allowedIps"),
+                )
+                return {"rawKey": result.raw_key, "key": result.record.to_api_dict()}
+
+            @router.delete("/api-keys/{key_id}")
+            async def revoke_api_key(
+                key_id: str,
+                user: AuthUser = Depends(require_auth),
+            ) -> dict:
+                key = await api_key_store.find_by_id(key_id)
+                if not key or key.service_id != user.sub:
+                    raise HTTPException(status_code=404, detail="API key not found")
+                await api_key_store.delete(key_id)
+                return {"success": True}
+
         return router
+
+async def _has_body(request: Request) -> bool:
+    return int(request.headers.get("content-length", "0")) > 0

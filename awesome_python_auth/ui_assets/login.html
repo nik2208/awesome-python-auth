@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="base.css">
+</head>
+<body>
+    <div class="auth-container">
+        <img src="" alt="Logo" class="logo hidden">
+        <h1 class="site-name">Awesome Auth</h1>
+        <h2>Login</h2>
+        <div id="alert" class="alert alert-error hidden"></div>
+        <form id="login-form">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <button type="submit" id="submit-btn">Login</button>
+        </form>
+        <div id="social-section" class="hidden">
+            <div class="divider"><span>Or continue with</span></div>
+            <div class="social-buttons">
+                <a href="../oauth/google" class="btn-social hidden" data-feature="google">Google</a>
+                <a href="../oauth/github" class="btn-social hidden" data-feature="github">GitHub</a>
+            </div>
+        </div>
+        <div class="footer-links">
+            <p data-feature="forgot-password" class="hidden"><a href="forgot-password">Forgot password?</a></p>
+            <p data-feature="register" class="hidden">Don't have an account? <a href="register">Sign up</a></p>
+        </div>
+    </div>
+    <script src="auth.js?v=2"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            await AuthService.init();
+            if (AuthService.user) { window.location.href = '/'; return; }
+            if (AuthService.config.features?.google || AuthService.config.features?.github) {
+                document.getElementById('social-section').classList.remove('hidden');
+                if (AuthService.config.features.google) document.querySelector('[data-feature="google"]')?.classList.remove('hidden');
+                if (AuthService.config.features.github) document.querySelector('[data-feature="github"]')?.classList.remove('hidden');
+            }
+            if (AuthService.config.features?.register) document.querySelector('[data-feature="register"]')?.classList.remove('hidden');
+            if (AuthService.config.features?.forgotPassword) document.querySelector('[data-feature="forgot-password"]')?.classList.remove('hidden');
+            const form = document.getElementById('login-form');
+            const alert = document.getElementById('alert');
+            const submitBtn = document.getElementById('submit-btn');
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                alert.classList.add('hidden');
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Logging in...';
+                try {
+                    const result = await AuthService.apiCall('/login', 'POST', { email: form.email.value, password: form.password.value });
+                    if (result.requiresTwoFactor) { window.location.href = `2fa?token=${result.tempToken}`; }
+                    else if (result.success) { window.location.href = '/'; }
+                    else { alert.textContent = result.error || 'Login failed'; alert.classList.remove('hidden'); }
+                } catch { alert.textContent = 'An unexpected error occurred'; alert.classList.remove('hidden'); }
+                finally { submitBtn.disabled = false; submitBtn.textContent = 'Login'; }
+            });
+        });
+    </script>
+</body>
+</html>

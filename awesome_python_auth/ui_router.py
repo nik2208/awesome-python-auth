@@ -1,0 +1,214 @@
+"""Built-in UI router for awesome-python-auth.
+
+Mirrors the ``buildUiRouter`` from awesome-node-auth.
+
+Serves the bundled Vanilla JS authentication pages (login, register,
+forgot-password, reset-password, verify-email, magic-link, 2fa) with
+Server-Side Rendering (SSR) of the UI configuration, branding colours, and
+the ``window.__AUTH_CONFIG__`` bootstrap script.
+
+Usage::
+
+    from awesome_python_auth.ui_router import build_ui_router
+
+    app.mount(
+        "/auth/ui",
+        build_ui_router(config=auth_config),
+        name="auth_ui",
+    )
+
+Or with a custom assets directory::
+
+    app.mount(
+        "/auth/ui",
+        build_ui_router(config=auth_config, ui_assets_dir="/path/to/custom/ui"),
+    )
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+
+# Directory bundled with the package
+_BUNDLED_ASSETS = Path(__file__).parent / "ui_assets"
+
+
+def build_ui_router(
+    *,
+    config: Any,  # AuthConfig
+    api_prefix: str | None = None,
+    ui_assets_dir: str | Path | None = None,
+    headless: bool = False,
+) -> FastAPI:
+    """Build a mini FastAPI application that serves the auth UI.
+
+    Parameters
+    ----------
+    config:
+        The :class:`~awesome_python_auth.config.AuthConfig` instance.
+    api_prefix:
+        Override the API prefix (defaults to ``config.api_prefix``).
+    ui_assets_dir:
+        Path to a custom directory of HTML/CSS/JS assets.  Defaults to the
+        bundled ``ui_assets/`` directory shipped with the package.
+    headless:
+        When ``True``, only the ``/config`` endpoint and static JS/CSS assets
+        are served — the HTML pages are not rendered.  Use this when your SPA
+        provides its own login UI.
+    """
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    resolved_api_prefix: str = api_prefix or getattr(config, "api_prefix", "/api/auth")
+    assets_path = Path(ui_assets_dir) if ui_assets_dir else _BUNDLED_ASSETS
+
+    # ── /config ───────────────────────────────────────────────────────────────
+
+    @app.get("/config")
+    async def ui_config(request: Request) -> dict:
+        return _build_config(config, resolved_api_prefix, headless=headless)
+
+    if headless:
+        # Headless: only serve static assets (auth.js, base.css)
+        _mount_static(app, assets_path)
+        return app
+
+    # ── HTML pages with SSR config injection ──────────────────────────────────
+
+    @app.get("/{page:path}")
+    async def serve_page(page: str, request: Request) -> Response:
+        # Default to login
+        page = page.strip("/") or "login"
+        html_file = assets_path / f"{page}.html"
+        if not html_file.exists():
+            # Fallback to login
+            html_file = assets_path / "login.html"
+        if not html_file.exists():
+            return Response(status_code=404)
+        return _render_ssr(html_file, config, resolved_api_prefix)
+
+    _mount_static(app, assets_path)
+    return app
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_config(config: Any, api_prefix: str, *, headless: bool = False) -> dict:
+    """Build the ``/config`` response payload."""
+    ui_cfg: dict = getattr(config, "ui_config", None) or {}
+    features = {
+        "register": bool(getattr(config, "on_register", None) or ui_cfg.get("features", {}).get("register")),
+        "magicLink": bool(
+            getattr(config, "on_magic_link_send", None)
+            or ui_cfg.get("features", {}).get("magicLink")
+        ),
+        "sms": bool(getattr(config, "on_sms_send", None) or ui_cfg.get("features", {}).get("sms")),
+        "google": bool(ui_cfg.get("features", {}).get("google")),
+        "github": bool(ui_cfg.get("features", {}).get("github")),
+        "forgotPassword": bool(
+            getattr(config, "on_forgot_password", None)
+            or ui_cfg.get("features", {}).get("forgotPassword")
+        ),
+        "verifyEmail": bool(
+            getattr(config, "on_send_verification_email", None)
+            or ui_cfg.get("features", {}).get("verifyEmail")
+        ),
+        "twoFactor": bool(ui_cfg.get("features", {}).get("twoFactor")),
+    }
+    ui_theme = ui_cfg.get("ui", {})
+    ui = {
+        "primaryColor": ui_theme.get("primaryColor", "#4a90d9"),
+        "secondaryColor": ui_theme.get("secondaryColor", "#6c757d"),
+        "logoUrl": ui_theme.get("logoUrl"),
+        "siteName": ui_theme.get("siteName", "Awesome Auth"),
+        "customCss": ui_theme.get("customCss"),
+        "bgColor": ui_theme.get("bgColor"),
+        "bgImage": ui_theme.get("bgImage"),
+        "cardBg": ui_theme.get("cardBg"),
+    }
+    return {
+        "apiPrefix": api_prefix,
+        "features": features,
+        "ui": ui,
+        "headless": headless,
+    }
+
+
+def _render_ssr(html_file: Path, config: Any, api_prefix: str) -> HTMLResponse:
+    """Read an HTML file, inject SSR config, and return the response."""
+    html = html_file.read_text(encoding="utf-8")
+    cfg = _build_config(config, api_prefix)
+    ui_theme = cfg.get("ui", {})
+
+    # Build inline CSS variables (prevents FOUC)
+    css_vars = ":root {"
+    if ui_theme.get("primaryColor"):
+        css_vars += f"--primary-color:{ui_theme['primaryColor']};"
+        css_vars += f"--input-focus:{ui_theme['primaryColor']};"
+    if ui_theme.get("secondaryColor"):
+        css_vars += f"--secondary-color:{ui_theme['secondaryColor']};"
+    if ui_theme.get("bgColor"):
+        css_vars += f"--bg-color:{ui_theme['bgColor']};"
+    if ui_theme.get("cardBg"):
+        css_vars += f"--card-bg:{ui_theme['cardBg']};"
+    css_vars += "}"
+    style_tags = f"<style>{css_vars}</style>"
+
+    if ui_theme.get("customCss"):
+        style_tags += f"<style>{ui_theme['customCss']}</style>"
+
+    # Site name + logo substitution
+    if ui_theme.get("siteName"):
+        safe_name = (
+            ui_theme["siteName"]
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;")
+        )
+        html = re.sub(r"<title>.*?</title>", f"<title>{safe_name}</title>", html, flags=re.DOTALL)
+        html = re.sub(
+            r'(<h1[^>]*class="site-name"[^>]*>).*?(</h1>)',
+            rf"\g<1>{safe_name}\g<2>",
+            html,
+            flags=re.DOTALL,
+        )
+
+    if ui_theme.get("logoUrl"):
+        html = html.replace(
+            '<img src="" alt="Logo" class="logo hidden">',
+            f'<img src="{ui_theme["logoUrl"]}" alt="Logo" class="logo">',
+        )
+
+    # Bootstrap config for auth.js
+    script_tag = f"<script>window.__AUTH_CONFIG__ = {json.dumps(cfg)};</script>"
+    html = html.replace("</head>", f"{style_tags}\n{script_tag}\n</head>")
+
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Content-Type": "text/html; charset=utf-8",
+        },
+    )
+
+
+def _mount_static(app: FastAPI, assets_path: Path) -> None:
+    """Mount the static file directory on the root of the app."""
+    if assets_path.exists():
+        app.mount(
+            "/",
+            StaticFiles(directory=str(assets_path), html=False),
+            name="ui_static",
+        )
