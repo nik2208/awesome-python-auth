@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field
@@ -364,8 +364,8 @@ class StoredSession(BaseModel):
     refresh_token_hash: str
     user_agent: str | None = None
     ip_address: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_active_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_active_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class UserStore(ABC):
@@ -409,6 +409,16 @@ class UserStore(ABC):
 
     async def delete_sessions_for_user(self, user_id: str) -> None:
         pass
+
+    # Token-based lookups (optional — override for efficient indexed queries)
+    async def find_by_reset_token(self, token_hash: str) -> StoredUser | None:
+        return None
+
+    async def find_by_verification_token(self, token_hash: str) -> StoredUser | None:
+        return None
+
+    async def find_by_pending_email_token(self, token_hash: str) -> StoredUser | None:
+        return None
 
 
 class SettingsStore(ABC):
@@ -472,6 +482,24 @@ class InMemoryUserStore(UserStore):
         self._sessions = {
             h: s for h, s in self._sessions.items() if s.user_id != user_id
         }
+
+    async def find_by_reset_token(self, token_hash: str) -> StoredUser | None:
+        return next(
+            (u for u in self._users.values() if u.reset_password_token == token_hash),
+            None,
+        )
+
+    async def find_by_verification_token(self, token_hash: str) -> StoredUser | None:
+        return next(
+            (u for u in self._users.values() if u.verification_token == token_hash),
+            None,
+        )
+
+    async def find_by_pending_email_token(self, token_hash: str) -> StoredUser | None:
+        return next(
+            (u for u in self._users.values() if u.pending_email_token == token_hash),
+            None,
+        )
 
 
 class InMemorySettingsStore(SettingsStore):

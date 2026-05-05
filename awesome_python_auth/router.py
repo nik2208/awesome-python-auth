@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import pyotp
@@ -280,7 +280,7 @@ class AuthConfigurator:
                 }
 
             access_token, refresh_token, _session = await _create_session(stored, request)
-            stored.last_login = datetime.utcnow()
+            stored.last_login = datetime.now(timezone.utc)
             await store.update(stored)
             return _send_tokens(request, response, access_token, refresh_token, stored)
 
@@ -367,7 +367,7 @@ class AuthConfigurator:
             access_token, new_refresh = _make_tokens(stored_user, session_handle or "")
             if stored_session:
                 stored_session.refresh_token_hash = _hash_token(new_refresh)
-                stored_session.last_active_at = datetime.utcnow()
+                stored_session.last_active_at = datetime.now(timezone.utc)
                 await store.update_session(stored_session)
 
             if _is_bearer(request):
@@ -435,14 +435,7 @@ class AuthConfigurator:
         @router.post("/reset-password")
         async def reset_password(body: ResetPasswordBody) -> dict:
             hashed = _hash_token(body.token)
-            # Linear scan — acceptable for typical user-store sizes.
-            # Production stores should index by reset token.
-            found: StoredUser | None = None
-            if hasattr(store, "_users"):  # InMemoryUserStore shortcut
-                for u in store._users.values():  # noqa: SLF001
-                    if u.reset_password_token == hashed:
-                        found = u
-                        break
+            found = await store.find_by_reset_token(hashed)
             if not found:
                 raise HTTPException(status_code=400, detail="Invalid or expired token")
             found.hashed_password = hash_password(body.password)
@@ -491,12 +484,7 @@ class AuthConfigurator:
         @router.get("/verify-email")
         async def verify_email(token: str) -> dict:
             hashed = _hash_token(token)
-            found: StoredUser | None = None
-            if hasattr(store, "_users"):
-                for u in store._users.values():  # noqa: SLF001
-                    if u.verification_token == hashed:
-                        found = u
-                        break
+            found = await store.find_by_verification_token(hashed)
             if not found:
                 raise HTTPException(status_code=400, detail="Invalid or expired token")
             found.is_email_verified = True
@@ -532,12 +520,7 @@ class AuthConfigurator:
             response: Response,
         ) -> dict:
             hashed = _hash_token(body.token)
-            found: StoredUser | None = None
-            if hasattr(store, "_users"):
-                for u in store._users.values():  # noqa: SLF001
-                    if u.pending_email_token == hashed:
-                        found = u
-                        break
+            found = await store.find_by_pending_email_token(hashed)
             if not found:
                 raise HTTPException(status_code=400, detail="Invalid or expired token")
             found.email = found.pending_email or found.email
