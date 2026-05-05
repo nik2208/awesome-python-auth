@@ -282,9 +282,19 @@ def _run_script_sandbox(cfg: Any, body: Any) -> dict[str, Any] | None:
 
     .. warning::
         Python's built-in ``exec`` is used here, **not** a true sandbox.
-        Only run scripts from trusted, admin-controlled sources.
-        Do not expose this to untrusted user input.
+        This feature is **only safe when scripts are stored exclusively by
+        privileged administrators** (e.g., via the admin UI with role-based
+        access control) and never accepted from end users or untrusted sources.
+
+        Even with ``__builtins__`` restricted, determined attackers with
+        write-access to the script storage can break out of the namespace.
+        If you cannot guarantee admin-only write access, disable this feature
+        by not providing a ``WebhookStore.find_by_provider`` implementation.
+
+    Raises no exceptions — all script errors are silently discarded.
     """
+    if not isinstance(getattr(cfg, "js_script", None), str):
+        return None
     namespace: dict[str, Any] = {"body": body, "result": None}
     try:
         exec(cfg.js_script, {"__builtins__": {}}, namespace)  # noqa: S102

@@ -82,11 +82,29 @@ def build_ui_router(
 
     # ── HTML pages with SSR config injection ──────────────────────────────────
 
+    # Set of pages that are valid to serve — avoids path traversal.
+    _ALLOWED_PAGES = frozenset(
+        p.stem for p in _BUNDLED_ASSETS.glob("*.html")
+    ) | frozenset(
+        p.stem for p in (assets_path.glob("*.html") if assets_path.exists() else [])
+    )
+
     @app.get("/{page:path}")
     async def serve_page(page: str, request: Request) -> Response:
-        # Default to login
-        page = page.strip("/") or "login"
-        html_file = assets_path / f"{page}.html"
+        # Sanitize: strip slashes, keep only the base name, no path separators
+        page_name = page.strip("/").split("/")[-1] or "login"
+        # Allow only alphanumeric, hyphens, underscores (no dots or slashes)
+        import re as _re
+        if not _re.fullmatch(r"[a-zA-Z0-9_-]+", page_name):
+            page_name = "login"
+
+        html_file = assets_path / f"{page_name}.html"
+        # Ensure the resolved path stays inside the assets directory
+        try:
+            html_file.resolve().relative_to(assets_path.resolve())
+        except ValueError:
+            return Response(status_code=403)
+
         if not html_file.exists():
             # Fallback to login
             html_file = assets_path / "login.html"
@@ -145,8 +163,14 @@ def _build_config(config: Any, api_prefix: str, *, headless: bool = False) -> di
 
 
 def _render_ssr(html_file: Path, config: Any, api_prefix: str) -> HTMLResponse:
-    """Read an HTML file, inject SSR config, and return the response."""
-    html = html_file.read_text(encoding="utf-8")
+    """Read an HTML file, inject SSR config, and return the response.
+
+    ``html_file`` must already be validated to be within the assets directory
+    by the caller before calling this function.
+    """
+    # Read from the already-validated, resolved path to avoid any ambiguity
+    resolved = html_file.resolve()
+    html = resolved.read_text(encoding="utf-8")
     cfg = _build_config(config, api_prefix)
     ui_theme = cfg.get("ui", {})
 
