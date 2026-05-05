@@ -35,6 +35,7 @@ class AuthUser(BaseModel):
     roles: list[str] | None = None
     permissions: list[str] | None = None
     is_admin: bool | None = None
+    tenant_id: str | None = None
 
     def to_jwt_payload(self) -> dict[str, Any]:
         """Return a dict suitable for embedding in a JWT access-token payload."""
@@ -71,6 +72,8 @@ class AuthUser(BaseModel):
             payload["permissions"] = self.permissions
         if self.is_admin is not None:
             payload["isAdmin"] = self.is_admin
+        if self.tenant_id is not None:
+            payload["tenantId"] = self.tenant_id
         return payload
 
     @classmethod
@@ -100,6 +103,7 @@ class AuthUser(BaseModel):
             roles=payload.get("roles"),
             permissions=payload.get("permissions"),
             is_admin=payload.get("isAdmin"),
+            tenant_id=payload.get("tenantId"),
         )
 
     def to_api_dict(self) -> dict[str, Any]:
@@ -137,6 +141,8 @@ class AuthUser(BaseModel):
             data["permissions"] = self.permissions
         if self.is_admin is not None:
             data["isAdmin"] = self.is_admin
+        if self.tenant_id is not None:
+            data["tenantId"] = self.tenant_id
         return data
 
 
@@ -326,6 +332,7 @@ class StoredUser(BaseModel):
     roles: list[str] | None = None
     permissions: list[str] | None = None
     is_admin: bool | None = None
+    tenant_id: str | None = None
     # Email-change request in progress
     pending_email: str | None = None
     pending_email_token: str | None = None
@@ -353,6 +360,7 @@ class StoredUser(BaseModel):
             roles=self.roles,
             permissions=self.permissions,
             is_admin=self.is_admin,
+            tenant_id=self.tenant_id,
         )
 
 
@@ -409,6 +417,22 @@ class UserStore(ABC):
 
     async def delete_sessions_for_user(self, user_id: str) -> None:
         pass
+
+    async def list_all_users(self, offset: int = 0, limit: int = 50) -> list[StoredUser]:
+        """Return a paginated list of all users.  Override for efficient DB queries."""
+        return []
+
+    async def count_users(self) -> int:
+        """Return the total number of registered users.  Override for efficient DB queries."""
+        return 0
+
+    async def list_all_sessions(self, offset: int = 0, limit: int = 50) -> list[StoredSession]:
+        """Return a paginated list of all active sessions.  Override for efficient DB queries."""
+        return []
+
+    async def count_active_sessions(self) -> int:
+        """Return the total number of active sessions.  Override for efficient DB queries."""
+        return 0
 
     # Token-based lookups (optional — override for efficient indexed queries)
     async def find_by_reset_token(self, token_hash: str) -> StoredUser | None:
@@ -482,6 +506,20 @@ class InMemoryUserStore(UserStore):
         self._sessions = {
             h: s for h, s in self._sessions.items() if s.user_id != user_id
         }
+
+    async def list_all_users(self, offset: int = 0, limit: int = 50) -> list[StoredUser]:
+        all_users = list(self._users.values())
+        return all_users[offset : offset + limit]
+
+    async def count_users(self) -> int:
+        return len(self._users)
+
+    async def list_all_sessions(self, offset: int = 0, limit: int = 50) -> list[StoredSession]:
+        all_sessions = list(self._sessions.values())
+        return all_sessions[offset : offset + limit]
+
+    async def count_active_sessions(self) -> int:
+        return len(self._sessions)
 
     async def find_by_reset_token(self, token_hash: str) -> StoredUser | None:
         return next(

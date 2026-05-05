@@ -117,6 +117,15 @@ class AuthConfig:
     # Optional: provide an ApiKeyStore to enable API key auth on /api-keys/* endpoints.
     api_key_store: Any = None  # ApiKeyStore | None
 
+    # ── ReBAC / RBAC ─────────────────────────────────────────────────────────
+    # Optional: provide a RolesPermissionsStore to automatically enrich JWT tokens
+    # with roles and permissions at login/refresh time.
+    roles_permissions_store: Any = None  # RolesPermissionsStore | None
+
+    # ── Multi-tenancy ─────────────────────────────────────────────────────────
+    # Optional: provide a TenantStore to enable multi-tenant support.
+    tenant_store: Any = None  # TenantStore | None
+
     # ── Hooks ────────────────────────────────────────────────────────────────
     on_forgot_password: Any = None
     on_send_verification_email: Any = None

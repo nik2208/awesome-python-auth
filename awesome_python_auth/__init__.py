@@ -19,7 +19,7 @@ Usage::
 
 from .config import AuthConfig, AuthConfigurator
 from .dependencies import get_current_user, require_auth, require_roles
-from .models import AuthUser, SessionInfo, UserStore, SettingsStore
+from .models import AuthUser, SessionInfo, UserStore, SettingsStore, StoredUser, StoredSession, InMemoryUserStore
 from .middleware import CsrfMiddleware
 from .exceptions import AuthError, NotAuthenticatedError, ForbiddenError
 from .mailer import MailerConfig, MailerService, TemplateStore
@@ -35,6 +35,18 @@ from .sse import SseManager, StreamEvent
 from .tools import AuthTools, TelemetryStore, TelemetryEvent, InMemoryTelemetryStore
 from .tools_router import build_tools_router
 from .ui_router import build_ui_router
+from .rebac import RolesPermissionsStore, InMemoryRolesPermissionsStore
+from .tenants import Tenant, TenantStore, InMemoryTenantStore
+from .token_store import TokenStore, InMemoryTokenStore
+from .linked_accounts import (
+    LinkedAccount,
+    LinkedAccountsStore,
+    InMemoryLinkedAccountsStore,
+    PendingLink,
+    PendingLinkStore,
+    InMemoryPendingLinkStore,
+)
+from .admin_router import build_admin_router
 
 __all__ = [
     # Core
@@ -44,6 +56,9 @@ __all__ = [
     "SessionInfo",
     "UserStore",
     "SettingsStore",
+    "StoredUser",
+    "StoredSession",
+    "InMemoryUserStore",
     "CsrfMiddleware",
     # Dependencies
     "get_current_user",
@@ -79,4 +94,23 @@ __all__ = [
     "build_tools_router",
     # UI
     "build_ui_router",
+    # RBAC / ReBAC
+    "RolesPermissionsStore",
+    "InMemoryRolesPermissionsStore",
+    # Tenants
+    "Tenant",
+    "TenantStore",
+    "InMemoryTenantStore",
+    # Token store
+    "TokenStore",
+    "InMemoryTokenStore",
+    # Linked accounts
+    "LinkedAccount",
+    "LinkedAccountsStore",
+    "InMemoryLinkedAccountsStore",
+    "PendingLink",
+    "PendingLinkStore",
+    "InMemoryPendingLinkStore",
+    # Admin router
+    "build_admin_router",
 ]

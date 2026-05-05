@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>awesome-python-auth Admin</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- Login screen (shown when unauthenticated) -->
+<div id="login">
+  <div class="login-card">
+    <h1>&#128272; Admin Panel</h1>
+    <p>Sign in with your admin account.</p>
+    <div style="display:flex;flex-direction:column;gap:.75rem">
+      <input type="email" id="email-input" placeholder="Email" autofocus>
+      <input type="password" id="secret-input" placeholder="Password">
+      <button class="btn btn-primary" onclick="doLogin()">Sign in</button>
+    </div>
+    <div id="login-error" class="alert alert-error" style="margin-top:.75rem;display:none;"></div>
+  </div>
+</div>
+
+<!-- Main app (shown when authenticated) -->
+<div id="app">
+  <div id="flash"></div>
+  <header>
+    <h1>&#128272; awesome-python-auth Admin</h1>
+    <span id="header-meta"></span>
+  </header>
+  <nav id="nav">
+    <button class="btn logout-btn" style="margin-left:auto;margin-top:.4rem;margin-bottom:.4rem;font-size:.75rem;padding:.25rem .75rem;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:6px" onclick="doLogout()">Logout</button>
+  </nav>
+  <main id="main"></main>
+</div>
+
+<script>
+// Injected at runtime by build_admin_router — may be overridden by the Python backend
+window.__ADMIN_CONFIG__ = {
+  apiBase: window.location.pathname.replace(/\/$/, ''),
+  features: {},
+};
+</script>
+<script src="admin.js"></script>
+</body>
+</html>

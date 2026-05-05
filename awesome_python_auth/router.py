@@ -205,6 +205,21 @@ class AuthConfigurator:
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
 
+        async def _make_tokens_enriched(user: StoredUser, session_handle: str) -> tuple[str, str]:
+            """Like _make_tokens but enriches roles/permissions from the RBAC store if configured."""
+            auth_user = user.to_auth_user()
+            rbac = cfg.roles_permissions_store
+            if rbac is not None:
+                roles = await rbac.get_roles_for_user(user.id, user.tenant_id)
+                perms = await rbac.get_permissions_for_user(user.id, user.tenant_id)
+                # Merge store roles with any roles already on the user record
+                merged_roles = list(dict.fromkeys((auth_user.roles or []) + roles))
+                merged_perms = list(dict.fromkeys((auth_user.permissions or []) + perms))
+                auth_user = auth_user.model_copy(update={"roles": merged_roles or None, "permissions": merged_perms or None})
+            access = create_access_token(auth_user.to_jwt_payload(), secret, access_exp)
+            refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
+            return access, refresh
+
         async def _create_session(
             user: StoredUser, request: Request
         ) -> tuple[str, str, StoredSession]:
@@ -214,7 +229,7 @@ class AuthConfigurator:
                 user_agent=request.headers.get("user-agent"),
                 ip_address=request.client.host if request.client else None,
             )
-            access_token, refresh_token = _make_tokens(user, session.handle)
+            access_token, refresh_token = await _make_tokens_enriched(user, session.handle)
             session.refresh_token_hash = _hash_token(refresh_token)
             await store.create_session(session)
             return access_token, refresh_token, session
@@ -364,7 +379,7 @@ class AuthConfigurator:
             if not stored_user:
                 raise HTTPException(status_code=401, detail="User not found")
 
-            access_token, new_refresh = _make_tokens(stored_user, session_handle or "")
+            access_token, new_refresh = await _make_tokens_enriched(stored_user, session_handle or "")
             if stored_session:
                 stored_session.refresh_token_hash = _hash_token(new_refresh)
                 stored_session.last_active_at = datetime.now(timezone.utc)
