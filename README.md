@@ -264,6 +264,216 @@ app.add_middleware(
 
 ---
 
+## AuthEventBus
+
+The `AuthEventBus` is a lightweight publish/subscribe bus that lets you react to identity events (login, register, role change, …) without coupling your code to the auth internals.  Both sync and async handlers are supported.
+
+```python
+from awesome_python_auth import AuthEventBus, AuthEventNames
+
+bus = AuthEventBus()
+
+# Sync handler
+def on_login(payload):
+    print("Login:", payload["userId"], payload["timestamp"])
+
+bus.on_event(AuthEventNames.AUTH_LOGIN_SUCCESS, on_login)
+
+# Async handler
+async def async_on_login(payload):
+    await audit_log.write(payload["event"], payload["userId"])
+
+bus.on_event(AuthEventNames.AUTH_LOGIN_SUCCESS, async_on_login)
+
+# Wildcard — receives EVERY event
+bus.on_event("*", lambda p: metrics.increment(p["event"]))
+
+# Unsubscribe
+bus.off_event(AuthEventNames.AUTH_LOGIN_SUCCESS, on_login)
+```
+
+Pass the bus to `AuthTools` so `track()` automatically publishes on it:
+
+```python
+from awesome_python_auth import AuthTools
+
+tools = AuthTools(event_bus=bus)
+await tools.track(AuthEventNames.AUTH_LOGIN_SUCCESS, user_id="u1")
+# → on_login is called with {"event": "identity.auth.login.success", "userId": "u1", ...}
+```
+
+### Standard event names
+
+All constants live on `AuthEventNames`:
+
+| Constant | Value |
+|---|---|
+| `AUTH_LOGIN_SUCCESS` | `identity.auth.login.success` |
+| `AUTH_LOGIN_FAILED` | `identity.auth.login.failed` |
+| `AUTH_LOGOUT` | `identity.auth.logout` |
+| `USER_CREATED` | `identity.user.created` |
+| `USER_DELETED` | `identity.user.deleted` |
+| `USER_EMAIL_VERIFIED` | `identity.user.email.verified` |
+| `USER_PASSWORD_CHANGED` | `identity.user.password.changed` |
+| `USER_2FA_ENABLED` | `identity.user.2fa.enabled` |
+| `USER_2FA_DISABLED` | `identity.user.2fa.disabled` |
+| `SESSION_CREATED` | `identity.session.created` |
+| `SESSION_REVOKED` | `identity.session.revoked` |
+| `ROLE_ASSIGNED` | `identity.role.assigned` |
+| `ROLE_REVOKED` | `identity.role.revoked` |
+
+---
+
+## AuthTools — multi-channel `notify()`
+
+`AuthTools.notify()` now supports multiple delivery channels: **SSE** (default), **email**, and **SMS**.
+
+```python
+from awesome_python_auth import AuthTools, SseManager
+from awesome_python_auth.mailer import MailerConfig
+from awesome_python_auth.notification import SmsConfig
+
+tools = AuthTools(
+    sse=SseManager(),
+    email_config=MailerConfig(
+        endpoint="https://mailer.example.com/send",
+        api_key="mailer-key",
+        from_address="no-reply@example.com",
+    ),
+    sms_config=SmsConfig(
+        endpoint="https://sms.example.com/send",
+        api_key="sms-key",
+        username="user",
+        password="pass",
+    ),
+    user_store=user_store,  # needed for email/sms channels
+)
+
+# SSE only (default)
+await tools.notify("user:123", type="ping", data={"msg": "Hello!"})
+
+# Email + SSE
+await tools.notify(
+    "user:123",
+    type="subscription_expiring",
+    data={"days": 3},
+    user_id="123",
+    channels=["sse", "email"],
+    email_subject="Your subscription expires soon",
+)
+
+# All three channels
+await tools.notify(
+    "user:123",
+    type="alert",
+    data="Unusual login detected",
+    user_id="123",
+    channels=["sse", "email", "sms"],
+    email_subject="Security alert",
+    sms_message="Unusual login detected on your account",
+)
+```
+
+### NotificationService
+
+For standalone use (outside `AuthTools`):
+
+```python
+from awesome_python_auth import NotificationService, SmsConfig, SendEmailOptions, SendSmsOptions
+from awesome_python_auth.mailer import MailerConfig
+
+service = NotificationService(
+    email=MailerConfig(endpoint="...", api_key="...", from_address="..."),
+    sms=SmsConfig(endpoint="...", api_key="...", username="...", password="..."),
+)
+
+await service.send_email(SendEmailOptions(
+    to="alice@example.com",
+    subject="Hello",
+    html="<p>Hi Alice!</p>",
+))
+
+await service.send_sms(SendSmsOptions(
+    to="+15551234567",
+    message="Your OTP is 123456",
+))
+```
+
+---
+
+## Identity Provider (IdP) mode
+
+When `id_provider` is configured, the auth server becomes a **central Identity Provider**:
+
+- Signs JWTs with **RS256** (RSA-2048) instead of HS256.
+- Exposes a public `GET /.well-known/jwks.json` JWKS endpoint.
+- Downstream Resource Servers can verify tokens without a shared secret.
+
+```python
+import os
+from awesome_python_auth import AuthConfig, AuthConfigurator
+from awesome_python_auth.idp import IdProviderConfig
+
+config = AuthConfig(
+    api_prefix="/api/auth",
+    access_token_secret=os.environ["JWT_SECRET"],   # still used for refresh-token lookup
+    id_provider=IdProviderConfig(
+        enabled=True,
+        # In production, load from environment / secret manager:
+        private_key=os.environ.get("IDP_PRIVATE_KEY"),   # PEM-encoded RSA private key
+        issuer="https://auth.myplatform.com",
+        token_expiry=2592000,        # 30 days (seconds)
+        refresh_token_expiry=7776000,  # 90 days (seconds)
+        jwks_path="/.well-known/jwks.json",
+    ),
+)
+
+configurator = AuthConfigurator(config, user_store)
+app.include_router(configurator.router())
+```
+
+The JWKS endpoint is automatically mounted at `{api_prefix}{jwks_path}` (default: `/api/auth/.well-known/jwks.json`).
+
+> **Development tip**: when `private_key` is omitted an ephemeral RSA-2048 keypair is auto-generated at startup with a warning.  All tokens are invalidated on restart — **never use this in production**.
+
+### Generating a keypair
+
+```python
+from awesome_python_auth import JwksService
+
+private_key, public_key = JwksService.generate_keypair()
+# Store private_key in a secret manager; public_key is derived automatically
+```
+
+---
+
+## Resource Server mode
+
+When `resource_server` is configured, the auth middleware validates incoming tokens against a **remote JWKS endpoint** issued by a central IdP.  Login/register routes still work normally.
+
+```python
+from awesome_python_auth import AuthConfig, AuthConfigurator
+from awesome_python_auth.idp import ResourceServerConfig
+
+config = AuthConfig(
+    access_token_secret="...",       # still required
+    resource_server=ResourceServerConfig(
+        enabled=True,
+        jwks_url="https://auth.myplatform.com/api/auth/.well-known/jwks.json",
+        issuer="https://auth.myplatform.com",   # optional — tokens with wrong iss are rejected
+        jwks_cache_ttl=3600,        # 1 hour cache (seconds)
+        jwks_fetch_timeout=5.0,     # seconds
+    ),
+)
+
+configurator = AuthConfigurator(config, user_store)
+app.include_router(configurator.router())
+```
+
+`get_current_user`, `require_auth`, and `require_roles` all switch to JWKS-based RS256 verification automatically when Resource Server mode is active.
+
+---
+
 ## Complete Example
 
 ```python

@@ -91,6 +91,16 @@ class AuthConfig:
         Optional :class:`~awesome_python_auth.api_keys.ApiKeyStore` instance.
         When provided, ``GET /api-keys``, ``POST /api-keys``, and
         ``DELETE /api-keys/{id}`` endpoints are enabled.
+    id_provider:
+        Optional :class:`~awesome_python_auth.idp.IdProviderConfig`.
+        When set, the router signs JWTs with **RS256** and exposes a
+        ``GET /.well-known/jwks.json`` JWKS endpoint so downstream Resource
+        Servers can verify tokens without a shared secret.
+    resource_server:
+        Optional :class:`~awesome_python_auth.idp.ResourceServerConfig`.
+        When set, auth dependencies validate incoming tokens against a remote
+        JWKS endpoint (issued by a central IdP) instead of the local HS256
+        secret.
     """
 
     api_prefix: str = "/api/auth"
@@ -125,6 +135,13 @@ class AuthConfig:
     # ── Multi-tenancy ─────────────────────────────────────────────────────────
     # Optional: provide a TenantStore to enable multi-tenant support.
     tenant_store: Any = None  # TenantStore | None
+
+    # ── IdP / Resource Server ──────────────────────────────────────────────────
+    # Optional: provide an IdProviderConfig to enable RS256 / JWKS IdP mode.
+    id_provider: Any = None  # IdProviderConfig | None
+
+    # Optional: provide a ResourceServerConfig to verify tokens via remote JWKS.
+    resource_server: Any = None  # ResourceServerConfig | None
 
     # ── Hooks ────────────────────────────────────────────────────────────────
     on_forgot_password: Any = None
