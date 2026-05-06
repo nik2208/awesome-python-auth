@@ -163,6 +163,11 @@ class AuthConfigurator:
         self._store = user_store
         # Register secret globally so the dependency helpers can find it.
         _register_secret(config.access_token_secret)
+        # Register resource server config if provided
+        rs_cfg = getattr(config, "resource_server", None)
+        if rs_cfg is not None and getattr(rs_cfg, "enabled", False):
+            from .dependencies import _register_resource_server
+            _register_resource_server(rs_cfg)
 
     # ------------------------------------------------------------------
     # Router factory
@@ -198,7 +203,32 @@ class AuthConfigurator:
         access_exp = cfg.access_token_expires_in
         refresh_exp = cfg.refresh_token_expires_in
 
+        # ── IdP mode setup ────────────────────────────────────────────────────
+        _idp_cfg = getattr(cfg, "id_provider", None)
+        _idp_active = _idp_cfg is not None and (
+            getattr(_idp_cfg, "enabled", False) or getattr(_idp_cfg, "private_key", None)
+        )
+        if _idp_active:
+            from .idp import resolve_idp_keypair
+            _idp_private_key, _idp_public_key = resolve_idp_keypair(_idp_cfg)
+        else:
+            _idp_private_key = _idp_public_key = None
+
         def _make_tokens(user: StoredUser, session_handle: str) -> tuple[str, str]:
+            if _idp_active and _idp_private_key:
+                from .jwt_utils import create_idp_access_token, create_idp_refresh_token
+                payload = user.to_auth_user().to_jwt_payload()
+                access = create_idp_access_token(
+                    payload, _idp_private_key,
+                    expires_in_seconds=_idp_cfg.token_expiry,
+                    issuer=getattr(_idp_cfg, "issuer", None),
+                )
+                refresh = create_idp_refresh_token(
+                    payload, _idp_private_key,
+                    expires_in_seconds=_idp_cfg.refresh_token_expiry,
+                    issuer=getattr(_idp_cfg, "issuer", None),
+                )
+                return access, refresh
             access = create_access_token(
                 user.to_auth_user().to_jwt_payload(), secret, access_exp
             )
@@ -216,6 +246,20 @@ class AuthConfigurator:
                 merged_roles = list(dict.fromkeys((auth_user.roles or []) + roles))
                 merged_perms = list(dict.fromkeys((auth_user.permissions or []) + perms))
                 auth_user = auth_user.model_copy(update={"roles": merged_roles or None, "permissions": merged_perms or None})
+            if _idp_active and _idp_private_key:
+                from .jwt_utils import create_idp_access_token, create_idp_refresh_token
+                payload = auth_user.to_jwt_payload()
+                access = create_idp_access_token(
+                    payload, _idp_private_key,
+                    expires_in_seconds=_idp_cfg.token_expiry,
+                    issuer=getattr(_idp_cfg, "issuer", None),
+                )
+                refresh = create_idp_refresh_token(
+                    payload, _idp_private_key,
+                    expires_in_seconds=_idp_cfg.refresh_token_expiry,
+                    issuer=getattr(_idp_cfg, "issuer", None),
+                )
+                return access, refresh
             access = create_access_token(auth_user.to_jwt_payload(), secret, access_exp)
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
@@ -880,6 +924,25 @@ class AuthConfigurator:
                     raise HTTPException(status_code=404, detail="API key not found")
                 await api_key_store.delete(key_id)
                 return {"success": True}
+
+        # ── JWKS endpoint (IdP mode) ─────────────────────────────────────────
+        if _idp_active and _idp_public_key and _idp_cfg is not None:
+            from .idp import JwksService as _JwksService
+            _jwks_doc = _JwksService.build_jwks_document(_idp_public_key)
+
+            # Strip the router prefix so the path is relative to where it's mounted
+            # The well-known path may start with / — mount relative to the prefix
+            _well_known_path = getattr(_idp_cfg, "jwks_path", "/.well-known/jwks.json")
+            # Remove the api_prefix from the path if it's already included
+            if _well_known_path.startswith(cfg.api_prefix):
+                _jwks_route_path = _well_known_path[len(cfg.api_prefix):]
+            else:
+                _jwks_route_path = _well_known_path
+
+            @router.get(_jwks_route_path, include_in_schema=True)
+            async def jwks() -> dict:
+                """Public JSON Web Key Set — allows Resource Servers to verify RS256 tokens."""
+                return _jwks_doc
 
         return router
 

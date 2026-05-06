@@ -47,6 +47,21 @@ from .linked_accounts import (
     InMemoryPendingLinkStore,
 )
 from .admin_router import build_admin_router
+from .events import AuthEventBus, AuthEventNames, AuthEventPayload
+from .notification import (
+    NotificationService,
+    SmsConfig,
+    SmsService,
+    SendEmailOptions,
+    SendSmsOptions,
+)
+from .idp import (
+    IdProviderConfig,
+    ResourceServerConfig,
+    JwksService,
+    JwksClient,
+    JWK,
+)
 
 __all__ = [
     # Core
@@ -86,7 +101,7 @@ __all__ = [
     # SSE
     "SseManager",
     "StreamEvent",
-    # Tools (telemetry + SSE + webhooks)
+    # Tools (telemetry + SSE + webhooks + event bus)
     "AuthTools",
     "TelemetryStore",
     "TelemetryEvent",
@@ -113,4 +128,20 @@ __all__ = [
     "InMemoryPendingLinkStore",
     # Admin router
     "build_admin_router",
+    # Event bus
+    "AuthEventBus",
+    "AuthEventNames",
+    "AuthEventPayload",
+    # Notification service
+    "NotificationService",
+    "SmsConfig",
+    "SmsService",
+    "SendEmailOptions",
+    "SendSmsOptions",
+    # IdP / Resource Server / JWKS
+    "IdProviderConfig",
+    "ResourceServerConfig",
+    "JwksService",
+    "JwksClient",
+    "JWK",
 ]
