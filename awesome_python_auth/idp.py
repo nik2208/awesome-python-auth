@@ -239,7 +239,7 @@ class JwksService:
         if not isinstance(pub, RSAPublicKey):
             raise ValueError("Only RSA public keys are supported")
 
-        pub_numbers = pub.public_key().public_numbers() if hasattr(pub, "public_key") else pub.public_numbers()
+        pub_numbers = pub.public_numbers()
 
         def _int_to_base64url(n: int) -> str:
             length = (n.bit_length() + 7) // 8

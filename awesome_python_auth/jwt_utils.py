@@ -103,18 +103,14 @@ def create_idp_access_token(
         Optional ``iss`` claim to embed.
     """
     now = int(time.time())
-    claims: dict[str, Any] = {
-        **payload,
-        "iat": now,
-        "exp": now + expires_in_seconds,
-    }
+    # Build claims without jwt-internal fields so we can add them cleanly
+    base = {k: v for k, v in payload.items() if k not in ("iat", "exp", "iss")}
     if issuer:
-        claims["iss"] = issuer
-    # Remove fields managed by the signing library
-    claims.pop("iat", None)
-    claims.pop("exp", None)
+        base["iss"] = issuer
+    base["iat"] = now
+    base["exp"] = now + expires_in_seconds
     return jwt.encode(
-        {**claims, "iat": now, "exp": now + expires_in_seconds},
+        base,
         private_key_pem,
         algorithm=_RS256_ALGORITHM,
         headers={"kid": _IDP_KEY_ID},

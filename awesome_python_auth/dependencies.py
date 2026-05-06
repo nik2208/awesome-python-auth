@@ -99,10 +99,6 @@ def _decode_hs256(token: str, secret: str) -> dict:
         )
 
 
-# Keep the old name as alias for backward compatibility
-_decode = _decode_hs256
-
-
 async def _decode_any(token: str) -> dict:
     """Decode a JWT using HS256 or RS256/JWKS depending on configuration."""
     rs_cfg = _registry.get("resource_server")
