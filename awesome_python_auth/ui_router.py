@@ -93,13 +93,15 @@ def build_ui_router(
     async def serve_page(page: str, request: Request) -> Response:
         raw_path = page.strip("/")
         if "." in raw_path:
-            asset_file = assets_path / raw_path
-            try:
-                asset_file.resolve().relative_to(assets_path.resolve())
-            except ValueError:
+            asset_name = Path(raw_path).name
+            if not re.fullmatch(r"[a-zA-Z0-9._-]+", asset_name):
                 return Response(status_code=403)
+            allowed_ext = {".js", ".css", ".json", ".map", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
+            if Path(asset_name).suffix.lower() not in allowed_ext:
+                return Response(status_code=404)
+            asset_file = assets_path / asset_name
             if asset_file.exists() and asset_file.is_file():
-                return FileResponse(asset_file)
+                return FileResponse(str(asset_file))
             return Response(status_code=404)
 
         # Sanitize: strip slashes, keep only the base name, no path separators
