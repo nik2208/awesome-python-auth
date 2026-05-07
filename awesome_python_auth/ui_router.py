@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 # Directory bundled with the package
@@ -91,8 +91,19 @@ def build_ui_router(
 
     @app.get("/{page:path}")
     async def serve_page(page: str, request: Request) -> Response:
+        raw_path = page.strip("/")
+        if "." in raw_path:
+            asset_file = assets_path / raw_path
+            try:
+                asset_file.resolve().relative_to(assets_path.resolve())
+            except ValueError:
+                return Response(status_code=403)
+            if asset_file.exists() and asset_file.is_file():
+                return FileResponse(asset_file)
+            return Response(status_code=404)
+
         # Sanitize: strip slashes, keep only the base name, no path separators
-        page_name = page.strip("/").split("/")[-1] or "login"
+        page_name = raw_path.split("/")[-1] or "login"
         # Allow only alphanumeric, hyphens, underscores (no dots or slashes)
         import re as _re
         if not _re.fullmatch(r"[a-zA-Z0-9_-]+", page_name):
