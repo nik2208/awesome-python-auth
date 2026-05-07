@@ -1,5 +1,7 @@
 """Integration tests for the auth router using FastAPI TestClient."""
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -145,7 +147,6 @@ class TestLogin:
             last_name="User",
             is_email_verified=True,
         )
-        import asyncio
         asyncio.get_event_loop().run_until_complete(user_store.create(stored))
 
         login_resp = local_client.post(
@@ -416,8 +417,6 @@ class TestOauthEndpoints:
         assert resp.headers["location"] == "https://oauth.example/google/authorize"
 
     def test_oauth_callback_can_login_and_set_session_cookies(self, user_store):
-        import asyncio
-
         stored = StoredUser(
             email="oauth@example.com",
             hashed_password=hash_password("password123"),
@@ -449,8 +448,6 @@ class TestOauthEndpoints:
 
 class TestStatefulSessionPolicies:
     def test_check_on_allcalls_rejects_revoked_session(self, user_store):
-        import asyncio
-
         stored = StoredUser(
             email="allcalls@example.com",
             hashed_password=hash_password("password123"),
@@ -485,8 +482,6 @@ class TestStatefulSessionPolicies:
         assert resp.json()["detail"]["code"] == "SESSION_REVOKED"
 
     def test_check_on_refresh_returns_session_revoked_code(self, user_store):
-        import asyncio
-
         stored = StoredUser(
             email="refresh@example.com",
             hashed_password=hash_password("password123"),

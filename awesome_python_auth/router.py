@@ -57,7 +57,7 @@ from typing import Any
 
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
 from .dependencies import (
     _register_cookie_names,
@@ -490,18 +490,16 @@ class AuthConfigurator:
 
             stored_session = await store.get_session_by_handle(session_handle) if session_handle else None
             if session_check_on in {"refresh", "allcalls"} and (not stored_session or not user_id or stored_session.user_id != user_id):
-                return Response(
-                    content='{"success":false,"code":"SESSION_REVOKED","message":"Session revoked"}',
+                return JSONResponse(
+                    content={"success": False, "code": "SESSION_REVOKED", "message": "Session revoked"},
                     status_code=401,
-                    media_type="application/json",
                 )
             if stored_session:
                 token_hash = _hash_token(raw_refresh)
                 if stored_session.refresh_token_hash != token_hash:
-                    return Response(
-                        content='{"success":false,"code":"SESSION_REVOKED","message":"Session revoked"}',
+                    return JSONResponse(
+                        content={"success": False, "code": "SESSION_REVOKED", "message": "Session revoked"},
                         status_code=401,
-                        media_type="application/json",
                     )
 
             stored_user = await store.get_by_id(user_id) if user_id else None
