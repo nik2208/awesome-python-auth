@@ -180,6 +180,13 @@ def _read_cookie(request: Request, names: tuple[str, ...]) -> str | None:
     return None
 
 
+async def _resolve_hook_result(hook: Any, *args: Any) -> Any:
+    value = hook(*args)
+    if hasattr(value, "__await__"):
+        return await value
+    return value
+
+
 class AuthConfigurator:
     """Entry point for configuring the auth system.
 
@@ -253,8 +260,14 @@ class AuthConfigurator:
         _register_cookie_names(access_cookie_names)
         session_check_on = (cfg.session_check_on or "none").lower().strip()
         if session_check_on not in {"allcalls", "refresh", "none"}:
-            raise ValueError("AuthConfig.session_check_on must be one of: allcalls, refresh, none")
+            raise ValueError(
+                f"AuthConfig.session_check_on must be one of: allcalls, refresh, none "
+                f"(got: {session_check_on!r})"
+            )
         _register_session_check(session_check_on, store)
+
+        def _jwt_payload_with_session(user: AuthUser, session_handle: str) -> dict[str, Any]:
+            return {**user.to_jwt_payload(), "sessionHandle": session_handle}
 
         # ── IdP mode setup ────────────────────────────────────────────────────
         _idp_cfg = getattr(cfg, "id_provider", None)
@@ -270,8 +283,7 @@ class AuthConfigurator:
         def _make_tokens(user: StoredUser, session_handle: str) -> tuple[str, str]:
             if _idp_active and _idp_private_key:
                 from .jwt_utils import create_idp_access_token, create_idp_refresh_token
-                payload = user.to_auth_user().to_jwt_payload()
-                payload["sessionHandle"] = session_handle
+                payload = _jwt_payload_with_session(user.to_auth_user(), session_handle)
                 access = create_idp_access_token(
                     payload, _idp_private_key,
                     expires_in_seconds=_idp_cfg.token_expiry,
@@ -283,11 +295,7 @@ class AuthConfigurator:
                     issuer=getattr(_idp_cfg, "issuer", None),
                 )
                 return access, refresh
-            access = create_access_token(
-                {**user.to_auth_user().to_jwt_payload(), "sessionHandle": session_handle},
-                secret,
-                access_exp,
-            )
+            access = create_access_token(_jwt_payload_with_session(user.to_auth_user(), session_handle), secret, access_exp)
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
 
@@ -304,8 +312,7 @@ class AuthConfigurator:
                 auth_user = auth_user.model_copy(update={"roles": merged_roles or None, "permissions": merged_perms or None})
             if _idp_active and _idp_private_key:
                 from .jwt_utils import create_idp_access_token, create_idp_refresh_token
-                payload = auth_user.to_jwt_payload()
-                payload["sessionHandle"] = session_handle
+                payload = _jwt_payload_with_session(auth_user, session_handle)
                 access = create_idp_access_token(
                     payload, _idp_private_key,
                     expires_in_seconds=_idp_cfg.token_expiry,
@@ -317,11 +324,7 @@ class AuthConfigurator:
                     issuer=getattr(_idp_cfg, "issuer", None),
                 )
                 return access, refresh
-            access = create_access_token(
-                {**auth_user.to_jwt_payload(), "sessionHandle": session_handle},
-                secret,
-                access_exp,
-            )
+            access = create_access_token(_jwt_payload_with_session(auth_user, session_handle), secret, access_exp)
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
 
@@ -371,12 +374,6 @@ class AuthConfigurator:
                 refresh_cookie_name=refresh_cookie_name,
             )
             return {"success": True, **auth_user.to_api_dict()}
-
-        async def _resolve_hook(hook: Any, *args: Any) -> Any:
-            value = hook(*args)
-            if hasattr(value, "__await__"):
-                return await value
-            return value
 
         # ── /me ─────────────────────────────────────────────────────────────
 
@@ -923,7 +920,7 @@ class AuthConfigurator:
         async def oauth_start(provider: str, request: Request):
             if not cfg.on_oauth_start:
                 raise HTTPException(status_code=404, detail="OAuth provider not configured")
-            result = await _resolve_hook(cfg.on_oauth_start, provider, request)
+            result = await _resolve_hook_result(cfg.on_oauth_start, provider, request)
             if isinstance(result, str):
                 return RedirectResponse(url=result, status_code=302)
             if isinstance(result, dict):
@@ -937,7 +934,7 @@ class AuthConfigurator:
         async def oauth_callback(provider: str, request: Request):
             if not cfg.on_oauth_callback:
                 raise HTTPException(status_code=404, detail="OAuth provider not configured")
-            result = await _resolve_hook(cfg.on_oauth_callback, provider, request)
+            result = await _resolve_hook_result(cfg.on_oauth_callback, provider, request)
             redirect_to = "/"
             login_after = True
             user_id: str | None = None

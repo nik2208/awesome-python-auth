@@ -63,9 +63,9 @@ def _register_cookie_names(access_cookie_names: tuple[str, ...]) -> None:
     _registry["access_cookie_names"] = access_cookie_names
 
 
-def _register_session_check(config: Any, store: Any) -> None:
+def _register_session_check(session_check_on: str, store: Any) -> None:
     """Register session-check policy and store for stateful-session validation."""
-    _registry["session_check_on"] = config
+    _registry["session_check_on"] = session_check_on
     _registry["session_store"] = store
 
 
