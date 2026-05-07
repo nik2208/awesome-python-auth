@@ -16,6 +16,16 @@ Supports **both authentication strategies** used by those clients:
 | Angular / Web | Cookie (HttpOnly) + CSRF | `access-token` cookie + `X-CSRF-Token` header |
 | Flutter Native (iOS/Android/Desktop) | Bearer token | `Authorization: Bearer <token>` + `X-Auth-Strategy: bearer` |
 
+## Parity Snapshot vs `awesome-node-auth`
+
+| Capability | Status in `awesome-python-auth` | Notes |
+|---|---|---|
+| i18n (bundled auth UI) | ✅ Implemented | `ui_assets/ui-i18n-keys.json` + `data-i18n` bindings in bundled pages. |
+| Mail templating | ✅ Implemented | Built-in EN/IT templates + optional `TemplateStore` overrides. |
+| Served auth UI | ✅ Implemented | `build_ui_router(...)` serves bundled HTML/CSS/JS with SSR config injection. |
+| Auth JS runtime (`auth.js`) | ✅ Implemented | Bundled `ui_assets/auth.js` with session/refresh helpers and UI integration hooks. |
+| Dynamic webhooks | ✅ Implemented | Inbound `POST /tools/webhook/{provider}` supports provider lookup + dynamic script execution (`js_script`) from `WebhookStore`; outgoing webhook dispatch is supported through `AuthTools.track(...)` + `WebhookStore` + `WebhookSender`. |
+
 ---
 
 ## Installation
