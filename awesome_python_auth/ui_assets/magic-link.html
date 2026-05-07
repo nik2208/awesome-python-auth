@@ -4,12 +4,13 @@
 <body>
     <div class="auth-container">
         <img src="" alt="Logo" class="logo hidden">
-        <h1 class="site-name">Awesome Auth</h1>
-        <h2>Magic Link</h2>
+        <h1 class="site-name" data-i18n="site_name">Awesome Auth</h1>
+        <h2 data-i18n="magic_link_title">Magic Link</h2>
         <div id="alert" class="alert hidden"></div>
         <form id="magic-link-form">
-            <div class="form-group"><label for="email">Email</label><input type="email" id="email" name="email" required></div>
-            <button type="submit" id="submit-btn">Send Magic Link</button>
+            <p class="instruction-text" data-i18n="magic_link_instruction">Enter your email to receive a magic sign-in link.</p>
+            <div class="form-group"><label for="email" data-i18n="email_label">Email</label><input type="email" id="email" name="email" required placeholder="Enter your email" data-i18n="email_placeholder"></div>
+            <button type="submit" id="submit-btn" data-i18n="send_magic_link_button">Send Magic Link</button>
         </form>
         <div id="success-message" class="hidden">
             <div class="alert alert-success">Magic link sent! Check your inbox.</div>
