@@ -295,7 +295,11 @@ class AuthConfigurator:
                     issuer=getattr(_idp_cfg, "issuer", None),
                 )
                 return access, refresh
-            access = create_access_token(_jwt_payload_with_session(user.to_auth_user(), session_handle), secret, access_exp)
+            access = create_access_token(
+                _jwt_payload_with_session(user.to_auth_user(), session_handle),
+                secret,
+                access_exp,
+            )
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
 
@@ -486,7 +490,8 @@ class AuthConfigurator:
             session_handle = payload.get("sessionHandle")
 
             stored_session = await store.get_session_by_handle(session_handle) if session_handle else None
-            if session_check_on in {"refresh", "allcalls"} and (not stored_session or not user_id or stored_session.user_id != user_id):
+            is_session_invalid = not stored_session or not user_id or stored_session.user_id != user_id
+            if session_check_on in {"refresh", "allcalls"} and is_session_invalid:
                 return JSONResponse(
                     content={"success": False, "code": "SESSION_REVOKED", "message": "Session revoked"},
                     status_code=401,

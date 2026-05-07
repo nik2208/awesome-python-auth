@@ -171,17 +171,16 @@ async def get_current_user(
     payload = await _decode_any(token)
     session_check_on = _registry.get("session_check_on", "none")
     session_store = _registry.get("session_store")
-    if session_check_on == "allcalls" and session_store is not None:
-        handle = payload.get("sessionHandle")
-        user_id = payload.get("sub")
-        if handle and user_id:
-            session = await session_store.get_session_by_handle(handle)
-            if not session or session.user_id != user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail={"code": "SESSION_REVOKED", "message": "Session revoked"},
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+    handle = payload.get("sessionHandle")
+    user_id = payload.get("sub")
+    if session_check_on == "allcalls" and session_store is not None and handle and user_id:
+        session = await session_store.get_session_by_handle(handle)
+        if not session or session.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "SESSION_REVOKED", "message": "Session revoked"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     return AuthUser.from_jwt_payload(payload)
 
 
