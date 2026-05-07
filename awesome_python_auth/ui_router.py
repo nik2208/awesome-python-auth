@@ -102,9 +102,7 @@ def build_ui_router(
             asset_name = raw_path.rsplit("/", 1)[-1]
             if not re.fullmatch(r"[a-zA-Z0-9._-]+", asset_name):
                 return Response(status_code=403)
-            if "." not in asset_name:
-                return Response(status_code=404)
-            ext = "." + asset_name.rsplit(".", 1)[1].lower()
+            ext = Path(asset_name).suffix.lower()
             if ext not in _ALLOWED_STATIC_EXT:
                 return Response(status_code=404)
             asset_file = _ALLOWED_STATIC_FILES.get(asset_name)
