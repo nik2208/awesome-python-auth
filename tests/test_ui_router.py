@@ -31,7 +31,7 @@ class TestUiRouter:
         client = TestClient(_app())
         resp = client.get("/auth/ui/auth.js")
         assert resp.status_code == 200
-        assert "window.AwesomeNodeAuth" in resp.text
+        assert "window.AuthService" in resp.text
 
 
 class TestUiI18nKeys:

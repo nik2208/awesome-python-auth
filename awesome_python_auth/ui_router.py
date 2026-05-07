@@ -88,27 +88,31 @@ def build_ui_router(
     ) | frozenset(
         p.stem for p in (assets_path.glob("*.html") if assets_path.exists() else [])
     )
+    _ALLOWED_STATIC_EXT = {".js", ".css", ".json", ".map", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
+    _ALLOWED_STATIC_FILES = {
+        p.name: p
+        for p in assets_path.iterdir()
+        if p.is_file() and p.suffix.lower() in _ALLOWED_STATIC_EXT
+    } if assets_path.exists() else {}
 
     @app.get("/{page:path}")
     async def serve_page(page: str, request: Request) -> Response:
         raw_path = page.strip("/")
         if "." in raw_path:
-            asset_name = Path(raw_path).name
+            asset_name = raw_path.rsplit("/", 1)[-1]
             if not re.fullmatch(r"[a-zA-Z0-9._-]+", asset_name):
                 return Response(status_code=403)
-            allowed_ext = {".js", ".css", ".json", ".map", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
-            if Path(asset_name).suffix.lower() not in allowed_ext:
+            if "." + asset_name.rsplit(".", 1)[-1].lower() not in _ALLOWED_STATIC_EXT:
                 return Response(status_code=404)
-            asset_file = assets_path / asset_name
-            if asset_file.exists() and asset_file.is_file():
+            asset_file = _ALLOWED_STATIC_FILES.get(asset_name)
+            if asset_file:
                 return FileResponse(str(asset_file))
             return Response(status_code=404)
 
         # Sanitize: strip slashes, keep only the base name, no path separators
         page_name = raw_path.split("/")[-1] or "login"
         # Allow only alphanumeric, hyphens, underscores (no dots or slashes)
-        import re as _re
-        if not _re.fullmatch(r"[a-zA-Z0-9_-]+", page_name):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", page_name):
             page_name = "login"
 
         html_file = assets_path / f"{page_name}.html"
