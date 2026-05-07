@@ -20,10 +20,10 @@ Supports **both authentication strategies** used by those clients:
 
 | Capability | Status in `awesome-python-auth` | Notes |
 |---|---|---|
-| Auth strategies (email/password, magic link, SMS OTP, TOTP 2FA, OAuth linking) | ⚠️ Partial parity | Email/password, magic link, SMS OTP, and TOTP are implemented; dedicated `/oauth/*` login callbacks are not exposed. |
-| Token management (cookie/bearer, access/refresh rotation, secure cookies) | ⚠️ Partial parity | Cookie + bearer mode and token rotation are implemented; Node-specific `__Host-`/`__Secure-` prefix behavior is not explicitly documented. |
+| Auth strategies (email/password, magic link, SMS OTP, TOTP 2FA, OAuth linking) | ✅ Implemented | Includes dedicated OAuth provider endpoints: `/oauth/{provider}` and `/oauth/{provider}/callback`. |
+| Token management (cookie/bearer, access/refresh rotation, secure cookies) | ✅ Implemented | Cookie + bearer mode, rotation, and optional `__Host-` / `__Secure-` cookie-prefix parity via `AuthConfig.cookie_prefix`. |
 | Identity Provider (IdP) mode (RS256 + JWKS + resource server validation) | ✅ Implemented | `id_provider` + `resource_server` config enables RS256 JWT issuance, `/.well-known/jwks.json`, and remote JWKS validation. |
-| Stateful sessions | ⚠️ Partial parity | Session lifecycle (`/sessions` list/revoke + `UserStore` session methods) is implemented; Node `checkOn` and cache decorators are not matched 1:1. |
+| Stateful sessions | ✅ Implemented | Session lifecycle is implemented with revocation checks configurable via `AuthConfig.session_check_on` (`allcalls` / `refresh` / `none`). |
 | Dynamic email templates + UI i18n fallback | ✅ Implemented | `TemplateStore` is supported and bundled UI i18n keys provide fallback. |
 | CSRF protection | ✅ Implemented | `CsrfMiddleware` uses cookie + header double-submit validation for browser flows. |
 | Account management | ✅ Implemented | Registration, profile update, password/email change, verification, and account deletion are available. |
@@ -89,7 +89,9 @@ config = AuthConfig(
     cookie_secure=True,             # Set Secure flag on cookies (False for local HTTP)
     cookie_same_site="lax",         # SameSite cookie attribute
     cookie_domain=None,             # Cookie domain (None = same origin)
+    cookie_prefix="__Host-",        # Optional cookie name prefix (__Host- / __Secure-)
     totp_issuer="My App",           # Shown in authenticator apps
+    session_check_on="refresh",     # Stateful-session revocation checks: allcalls|refresh|none
     ui_config={"theme": "dark"},    # Static UI config returned by GET /ui/config
 )
 ```
@@ -206,6 +208,12 @@ All endpoints are mounted under `api_prefix` (default: `/api/auth`).
 |---|---|---|
 | `GET` | `/sessions` | List all active sessions |
 | `DELETE` | `/sessions/{handle}` | Revoke a session |
+
+### OAuth
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/oauth/{provider}` | Start provider OAuth flow (redirect via `on_oauth_start`) |
+| `GET` | `/oauth/{provider}/callback` | Complete provider callback and create session via `on_oauth_callback` |
 
 ### Account Linking
 | Method | Path | Description |

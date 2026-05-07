@@ -88,3 +88,20 @@ class TestCsrfMiddleware:
             cookies={"csrf-token": csrf_token},
         )
         assert resp.status_code == 403
+
+    def test_csrf_cookie_supports_host_prefix(self):
+        app = FastAPI()
+        app.add_middleware(
+            CsrfMiddleware,
+            api_prefix="/api/auth",
+            cookie_secure=False,
+            cookie_prefix="__Host-",
+        )
+
+        @app.get("/api/auth/me")
+        async def me():
+            return {"ok": True}
+
+        prefixed_client = TestClient(app, raise_server_exceptions=False)
+        resp = prefixed_client.get("/api/auth/me")
+        assert "__Host-csrf-token" in resp.cookies

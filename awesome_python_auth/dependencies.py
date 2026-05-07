@@ -28,7 +28,11 @@ from .models import AuthUser
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 # Name of the access-token cookie set by the auth server.
-_ACCESS_TOKEN_COOKIE = "access-token"
+_DEFAULT_ACCESS_COOKIE_NAMES = (
+    "access-token",
+    "__Host-access-token",
+    "__Secure-access-token",
+)
 
 # Request-state key where the resolved AuthUser is stored by middleware.
 _REQUEST_STATE_KEY = "awesome_auth_user"
@@ -52,6 +56,17 @@ def _register_resource_server(config: Any) -> None:
         cache_ttl=float(config.jwks_cache_ttl),
         fetch_timeout=float(config.jwks_fetch_timeout),
     )
+
+
+def _register_cookie_names(access_cookie_names: tuple[str, ...]) -> None:
+    """Register accepted access-token cookie names."""
+    _registry["access_cookie_names"] = access_cookie_names
+
+
+def _register_session_check(config: Any, store: Any) -> None:
+    """Register session-check policy and store for stateful-session validation."""
+    _registry["session_check_on"] = config
+    _registry["session_store"] = store
 
 
 def _get_secret() -> str:
@@ -79,7 +94,12 @@ def _extract_token(
     if credentials is not None:
         return credentials.credentials
     # 2. HttpOnly access-token cookie (web clients — Angular)
-    return request.cookies.get(_ACCESS_TOKEN_COOKIE)
+    cookie_names = _registry.get("access_cookie_names") or _DEFAULT_ACCESS_COOKIE_NAMES
+    for cookie_name in cookie_names:
+        token = request.cookies.get(cookie_name)
+        if token:
+            return token
+    return None
 
 
 def _decode_hs256(token: str, secret: str) -> dict:
@@ -149,6 +169,19 @@ async def get_current_user(
     if not token:
         return None
     payload = await _decode_any(token)
+    session_check_on = _registry.get("session_check_on", "none")
+    session_store = _registry.get("session_store")
+    if session_check_on == "allcalls" and session_store is not None:
+        handle = payload.get("sessionHandle")
+        user_id = payload.get("sub")
+        if handle and user_id:
+            session = await session_store.get_session_by_handle(handle)
+            if not session or session.user_id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={"code": "SESSION_REVOKED", "message": "Session revoked"},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
     return AuthUser.from_jwt_payload(payload)
 
 
