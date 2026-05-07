@@ -20,22 +20,22 @@ Supports **both authentication strategies** used by those clients:
 
 | Capability | Status in `awesome-python-auth` | Notes |
 |---|---|---|
-| Auth strategies (email/password, magic link, SMS OTP, TOTP 2FA, OAuth linking) | ⚠️ Partial parity | Core strategies are implemented (`/login`, `/magic-link/*`, `/sms/*`, `/2fa/*`); provider callback OAuth login flow is not exposed as dedicated `/oauth/*` endpoints. |
-| Token management (cookie/bearer, access/refresh rotation, secure cookies) | ⚠️ Partial parity | Cookie + bearer strategy support and refresh rotation are implemented; secure cookie flags are configurable (`cookie_secure`, `cookie_same_site`, `cookie_domain`) but Node-specific `__Host-`/`__Secure-` prefix handling is not explicitly documented in Python. |
+| Auth strategies (email/password, magic link, SMS OTP, TOTP 2FA, OAuth linking) | ⚠️ Partial parity | Email/password, magic link, SMS OTP, and TOTP are implemented; dedicated `/oauth/*` login callbacks are not exposed. |
+| Token management (cookie/bearer, access/refresh rotation, secure cookies) | ⚠️ Partial parity | Cookie + bearer mode and token rotation are implemented; Node-specific `__Host-`/`__Secure-` prefix behavior is not explicitly documented. |
 | Identity Provider (IdP) mode (RS256 + JWKS + resource server validation) | ✅ Implemented | `id_provider` + `resource_server` config enables RS256 JWT issuance, `/.well-known/jwks.json`, and remote JWKS validation. |
-| Stateful sessions | ⚠️ Partial parity | Session lifecycle is supported via `UserStore` session methods and `/sessions` endpoints (list/revoke); advanced Node options like `checkOn` policies and cache decorators are not exposed with the same API. |
-| Dynamic email templates + UI i18n fallback | ✅ Implemented | `TemplateStore` enables dynamic templates; bundled UI i18n keys provide built-in fallback. |
+| Stateful sessions | ⚠️ Partial parity | Session lifecycle (`/sessions` list/revoke + `UserStore` session methods) is implemented; Node `checkOn` and cache decorators are not matched 1:1. |
+| Dynamic email templates + UI i18n fallback | ✅ Implemented | `TemplateStore` is supported and bundled UI i18n keys provide fallback. |
 | CSRF protection | ✅ Implemented | `CsrfMiddleware` uses cookie + header double-submit validation for browser flows. |
 | Account management | ✅ Implemented | Registration, profile update, password/email change, verification, and account deletion are available. |
-| Account linking | ✅ Implemented | Link request/verify + linked account management endpoints and stores are available. |
-| RBAC | ✅ Implemented | `RolesPermissionsStore` support with token enrichment and role-based dependencies. |
-| Multi-tenancy | ✅ Implemented | `TenantStore` and tenant-aware user/session structures are available. |
-| Admin panel | ✅ Implemented | `build_admin_router(...)` serves bundled admin SPA and protected management APIs. |
-| Built-in UI + auth runtime (`auth.js`) | ✅ Implemented | `build_ui_router(...)` serves bundled pages/assets with runtime helpers and SSR config injection. |
-| Client libraries compatibility (Angular + Flutter) | ✅ Implemented | Cookie+CSRF (web) and bearer (native) strategies are both supported for existing clients. |
-| Event-driven tooling (event bus, SSE, inbound/outbound webhooks, telemetry, notify channels) | ✅ Implemented | `AuthTools`, `AuthEventBus`, SSE stream, webhook router/sender, and multi-channel `notify()` are available. |
-| API keys (M2M) | ✅ Implemented | `ApiKeyService`/`ApiKeyStore` plus auth and admin API-key endpoints are available. |
-| OpenAPI / Swagger docs | ✅ Implemented | FastAPI auto-generates OpenAPI and Swagger UI for mounted auth/admin/tools routers. |
+| Account linking | ✅ Implemented | Link request/verify plus linked-account management endpoints are available. |
+| RBAC | ✅ Implemented | `RolesPermissionsStore` with token enrichment and role-based dependencies. |
+| Multi-tenancy | ✅ Implemented | `TenantStore` and tenant-aware models are available. |
+| Admin panel | ✅ Implemented | `build_admin_router(...)` serves the bundled admin SPA and APIs. |
+| Built-in UI + auth runtime (`auth.js`) | ✅ Implemented | `build_ui_router(...)` serves bundled pages/assets with runtime helpers. |
+| Client libraries compatibility (Angular + Flutter) | ✅ Implemented | Cookie+CSRF (web) and bearer (native) client strategies are both supported. |
+| Event-driven tooling (event bus, SSE, inbound/outbound webhooks, telemetry, notify channels) | ✅ Implemented | `AuthTools`, `AuthEventBus`, SSE, webhooks, telemetry, and `notify()` channels are available. |
+| API keys (M2M) | ✅ Implemented | `ApiKeyService`/`ApiKeyStore` plus auth/admin API-key endpoints are available. |
+| OpenAPI / Swagger docs | ✅ Implemented | FastAPI auto-generates OpenAPI and Swagger UI for auth/admin/tools routers. |
 | MCP server (`awesome-node-auth-mcp-server`) | ➖ Out of scope | No Python-side MCP server is bundled in this repository. |
 
 ---
