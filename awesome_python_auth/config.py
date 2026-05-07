@@ -32,6 +32,9 @@ class AuthConfig:
         ``SameSite`` attribute for auth cookies.  Default: ``"lax"``.
     cookie_domain:
         Optional domain for auth cookies.  Leave ``None`` for same-origin.
+    cookie_prefix:
+        Optional cookie name prefix.  Set to ``"__Host-"`` or ``"__Secure-"``
+        for hardened cookie naming parity with awesome-node-auth.
     totp_issuer:
         Issuer name shown in authenticator apps.  Default: ``"awesome-python-auth"``.
     ui_config:
@@ -73,6 +76,13 @@ class AuthConfig:
     on_link_verify(token, provider, login_after_linking) -> user_id | None:
         Called to verify an account-linking token.
 
+    on_oauth_start(provider, request) -> redirect_url:
+        Called by ``GET /oauth/{provider}``. Return the provider authorization URL.
+
+    on_oauth_callback(provider, request) -> user_id | dict | StoredUser | None:
+        Called by ``GET /oauth/{provider}/callback``. Return the local user identity
+        (or a dict containing ``userId``/``redirectTo`` fields) to complete login.
+
     on_register(stored_user):
         Optional hook called immediately after a successful registration.
         Use it to send welcome emails, provision resources, etc.
@@ -110,6 +120,7 @@ class AuthConfig:
     cookie_secure: bool = True
     cookie_same_site: str = "lax"
     cookie_domain: str | None = None
+    cookie_prefix: str | None = None
     totp_issuer: str | None = None
     ui_config: dict[str, Any] | None = None
     email: dict[str, Any] | None = None
@@ -143,6 +154,13 @@ class AuthConfig:
     # Optional: provide a ResourceServerConfig to verify tokens via remote JWKS.
     resource_server: Any = None  # ResourceServerConfig | None
 
+    # ── Stateful session checks ────────────────────────────────────────────────
+    # When using stateful sessions, choose where revocation checks happen:
+    # - "allcalls": every authenticated request
+    # - "refresh": only on /refresh
+    # - "none": no extra session existence checks
+    session_check_on: str = "none"
+
     # ── Hooks ────────────────────────────────────────────────────────────────
     on_forgot_password: Any = None
     on_send_verification_email: Any = None
@@ -153,6 +171,8 @@ class AuthConfig:
     on_sms_verify: Any = None
     on_link_request: Any = None
     on_link_verify: Any = None
+    on_oauth_start: Any = None
+    on_oauth_callback: Any = None
     on_register: Any = None  # async (stored_user) -> None  — called after registration
 
 

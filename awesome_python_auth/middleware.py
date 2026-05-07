@@ -45,6 +45,8 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         ``True`` — override to ``False`` only during local development.
     cookie_same_site:
         ``SameSite`` attribute for the CSRF cookie.  Defaults to ``"lax"``.
+    cookie_prefix:
+        Optional ``"__Host-"`` or ``"__Secure-"`` prefix for the CSRF cookie name.
     """
 
     def __init__(
@@ -54,11 +56,13 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         exclude_paths: list[str] | None = None,
         cookie_secure: bool = True,
         cookie_same_site: str = "lax",
+        cookie_prefix: str | None = None,
     ) -> None:
         super().__init__(app)
         self._prefix = api_prefix
         self._cookie_secure = cookie_secure
         self._cookie_same_site = cookie_same_site
+        self._csrf_cookie_name = f"{cookie_prefix}{_CSRF_COOKIE}" if cookie_prefix else _CSRF_COOKIE
 
         # These endpoints do not require an established session.
         base_excluded = {
@@ -128,10 +132,10 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         response: Response = await call_next(request)
 
         # Ensure the CSRF cookie is always present
-        if _CSRF_COOKIE not in request.cookies:
+        if self._csrf_cookie_name not in request.cookies:
             token = secrets.token_urlsafe(32)
             response.set_cookie(
-                key=_CSRF_COOKIE,
+                key=self._csrf_cookie_name,
                 value=token,
                 httponly=False,  # Must be readable by JS
                 secure=self._cookie_secure,

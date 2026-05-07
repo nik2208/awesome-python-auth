@@ -41,6 +41,8 @@ GET  /linked-accounts
 POST /link-request
 POST /link-verify
 DELETE /linked-accounts/{provider}/{provider_account_id}
+GET  /oauth/{provider}
+GET  /oauth/{provider}/callback
 
 GET  /ui/config
 GET  /tools/stream (SSE)
@@ -55,9 +57,15 @@ from typing import Any
 
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 
-from .dependencies import _register_secret, get_current_user, require_auth
+from .dependencies import (
+    _register_cookie_names,
+    _register_secret,
+    _register_session_check,
+    get_current_user,
+    require_auth,
+)
 from .jwt_utils import (
     create_access_token,
     create_refresh_token,
@@ -95,8 +103,8 @@ from .models import (
 from .password_utils import hash_password, verify_password
 
 # ── Cookie / header names ────────────────────────────────────────────────────
-_ACCESS_TOKEN_COOKIE = "access-token"
-_REFRESH_TOKEN_COOKIE = "refresh-token"
+_BASE_ACCESS_TOKEN_COOKIE = "access-token"
+_BASE_REFRESH_TOKEN_COOKIE = "refresh-token"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 _DEFAULT_ACCESS_EXPIRES = 900  # 15 minutes
@@ -113,6 +121,8 @@ def _set_auth_cookies(
     access_expires: int,
     refresh_expires: int,
     domain: str | None,
+    access_cookie_name: str,
+    refresh_cookie_name: str,
 ) -> None:
     """Attach the access-token and refresh-token HttpOnly cookies to *response*."""
     kw: dict[str, Any] = {"httponly": True, "secure": secure, "path": "/"}
@@ -120,14 +130,14 @@ def _set_auth_cookies(
         kw["domain"] = domain
 
     response.set_cookie(
-        key=_ACCESS_TOKEN_COOKIE,
+        key=access_cookie_name,
         value=access_token,
         max_age=access_expires,
         samesite=same_site,
         **kw,
     )
     response.set_cookie(
-        key=_REFRESH_TOKEN_COOKIE,
+        key=refresh_cookie_name,
         value=refresh_token,
         max_age=refresh_expires,
         samesite=same_site,
@@ -135,16 +145,46 @@ def _set_auth_cookies(
     )
 
 
-def _clear_auth_cookies(response: Response, *, secure: bool, domain: str | None) -> None:
+def _clear_auth_cookies(
+    response: Response,
+    *,
+    secure: bool,
+    domain: str | None,
+    access_cookie_names: tuple[str, ...],
+    refresh_cookie_names: tuple[str, ...],
+) -> None:
     kw: dict[str, Any] = {"httponly": True, "secure": secure, "path": "/"}
     if domain:
         kw["domain"] = domain
-    response.delete_cookie(_ACCESS_TOKEN_COOKIE, **kw)
-    response.delete_cookie(_REFRESH_TOKEN_COOKIE, **kw)
+    for cookie_name in access_cookie_names:
+        response.delete_cookie(cookie_name, **kw)
+    for cookie_name in refresh_cookie_names:
+        response.delete_cookie(cookie_name, **kw)
 
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _cookie_name_with_prefix(base_name: str, prefix: str | None) -> str:
+    if not prefix:
+        return base_name
+    return f"{prefix}{base_name}"
+
+
+def _read_cookie(request: Request, names: tuple[str, ...]) -> str | None:
+    for name in names:
+        value = request.cookies.get(name)
+        if value:
+            return value
+    return None
+
+
+async def _resolve_hook_result(hook: Any, *args: Any) -> Any:
+    value = hook(*args)
+    if hasattr(value, "__await__"):
+        return await value
+    return value
 
 
 class AuthConfigurator:
@@ -202,6 +242,32 @@ class AuthConfigurator:
         domain = cfg.cookie_domain
         access_exp = cfg.access_token_expires_in
         refresh_exp = cfg.refresh_token_expires_in
+        cookie_prefix = cfg.cookie_prefix
+        access_cookie_name = _cookie_name_with_prefix(_BASE_ACCESS_TOKEN_COOKIE, cookie_prefix)
+        refresh_cookie_name = _cookie_name_with_prefix(_BASE_REFRESH_TOKEN_COOKIE, cookie_prefix)
+        access_cookie_names = (
+            access_cookie_name,
+            _BASE_ACCESS_TOKEN_COOKIE,
+            "__Host-access-token",
+            "__Secure-access-token",
+        )
+        refresh_cookie_names = (
+            refresh_cookie_name,
+            _BASE_REFRESH_TOKEN_COOKIE,
+            "__Host-refresh-token",
+            "__Secure-refresh-token",
+        )
+        _register_cookie_names(access_cookie_names)
+        session_check_on = (cfg.session_check_on or "none").lower().strip()
+        if session_check_on not in {"allcalls", "refresh", "none"}:
+            raise ValueError(
+                f"AuthConfig.session_check_on must be one of: allcalls, refresh, none "
+                f"(got: {session_check_on!r})"
+            )
+        _register_session_check(session_check_on, store)
+
+        def _jwt_payload_with_session(user: AuthUser, session_handle: str) -> dict[str, Any]:
+            return {**user.to_jwt_payload(), "sessionHandle": session_handle}
 
         # ── IdP mode setup ────────────────────────────────────────────────────
         _idp_cfg = getattr(cfg, "id_provider", None)
@@ -217,7 +283,7 @@ class AuthConfigurator:
         def _make_tokens(user: StoredUser, session_handle: str) -> tuple[str, str]:
             if _idp_active and _idp_private_key:
                 from .jwt_utils import create_idp_access_token, create_idp_refresh_token
-                payload = user.to_auth_user().to_jwt_payload()
+                payload = _jwt_payload_with_session(user.to_auth_user(), session_handle)
                 access = create_idp_access_token(
                     payload, _idp_private_key,
                     expires_in_seconds=_idp_cfg.token_expiry,
@@ -230,7 +296,9 @@ class AuthConfigurator:
                 )
                 return access, refresh
             access = create_access_token(
-                user.to_auth_user().to_jwt_payload(), secret, access_exp
+                _jwt_payload_with_session(user.to_auth_user(), session_handle),
+                secret,
+                access_exp,
             )
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
@@ -248,7 +316,7 @@ class AuthConfigurator:
                 auth_user = auth_user.model_copy(update={"roles": merged_roles or None, "permissions": merged_perms or None})
             if _idp_active and _idp_private_key:
                 from .jwt_utils import create_idp_access_token, create_idp_refresh_token
-                payload = auth_user.to_jwt_payload()
+                payload = _jwt_payload_with_session(auth_user, session_handle)
                 access = create_idp_access_token(
                     payload, _idp_private_key,
                     expires_in_seconds=_idp_cfg.token_expiry,
@@ -260,7 +328,7 @@ class AuthConfigurator:
                     issuer=getattr(_idp_cfg, "issuer", None),
                 )
                 return access, refresh
-            access = create_access_token(auth_user.to_jwt_payload(), secret, access_exp)
+            access = create_access_token(_jwt_payload_with_session(auth_user, session_handle), secret, access_exp)
             refresh = create_refresh_token(user.id, session_handle, secret, refresh_exp)
             return access, refresh
 
@@ -306,6 +374,8 @@ class AuthConfigurator:
                 access_expires=access_exp,
                 refresh_expires=refresh_exp,
                 domain=domain,
+                access_cookie_name=access_cookie_name,
+                refresh_cookie_name=refresh_cookie_name,
             )
             return {"success": True, **auth_user.to_api_dict()}
 
@@ -374,7 +444,7 @@ class AuthConfigurator:
 
         @router.post("/logout")
         async def logout(request: Request, response: Response) -> dict:
-            refresh_cookie = request.cookies.get(_REFRESH_TOKEN_COOKIE)
+            refresh_cookie = _read_cookie(request, refresh_cookie_names)
             if refresh_cookie:
                 try:
                     payload = decode_token(refresh_cookie, secret)
@@ -383,7 +453,13 @@ class AuthConfigurator:
                         await store.delete_session(handle)
                 except Exception:
                     pass
-            _clear_auth_cookies(response, secure=secure, domain=domain)
+            _clear_auth_cookies(
+                response,
+                secure=secure,
+                domain=domain,
+                access_cookie_names=access_cookie_names,
+                refresh_cookie_names=refresh_cookie_names,
+            )
             return {"success": True}
 
         # ── /refresh ─────────────────────────────────────────────────────────
@@ -400,7 +476,7 @@ class AuthConfigurator:
             if body and body.refresh_token:
                 raw_refresh = body.refresh_token
             if not raw_refresh:
-                raw_refresh = request.cookies.get(_REFRESH_TOKEN_COOKIE)
+                raw_refresh = _read_cookie(request, refresh_cookie_names)
 
             if not raw_refresh:
                 raise HTTPException(status_code=401, detail="No refresh token provided")
@@ -414,10 +490,19 @@ class AuthConfigurator:
             session_handle = payload.get("sessionHandle")
 
             stored_session = await store.get_session_by_handle(session_handle) if session_handle else None
+            is_session_invalid = not stored_session or not user_id or stored_session.user_id != user_id
+            if session_check_on in {"refresh", "allcalls"} and is_session_invalid:
+                return JSONResponse(
+                    content={"success": False, "code": "SESSION_REVOKED", "message": "Session revoked"},
+                    status_code=401,
+                )
             if stored_session:
                 token_hash = _hash_token(raw_refresh)
                 if stored_session.refresh_token_hash != token_hash:
-                    raise HTTPException(status_code=401, detail="Refresh token revoked")
+                    return JSONResponse(
+                        content={"success": False, "code": "SESSION_REVOKED", "message": "Session revoked"},
+                        status_code=401,
+                    )
 
             stored_user = await store.get_by_id(user_id) if user_id else None
             if not stored_user:
@@ -441,6 +526,8 @@ class AuthConfigurator:
                 access_expires=access_exp,
                 refresh_expires=refresh_exp,
                 domain=domain,
+                access_cookie_name=access_cookie_name,
+                refresh_cookie_name=refresh_cookie_name,
             )
             return {"success": True}
 
@@ -470,7 +557,13 @@ class AuthConfigurator:
         ) -> dict:
             await store.delete_sessions_for_user(user.sub)
             await store.delete(user.sub)
-            _clear_auth_cookies(response, secure=secure, domain=domain)
+            _clear_auth_cookies(
+                response,
+                secure=secure,
+                domain=domain,
+                access_cookie_names=access_cookie_names,
+                refresh_cookie_names=refresh_cookie_names,
+            )
             return {"success": True}
 
         # ── /forgot-password ─────────────────────────────────────────────────
@@ -738,7 +831,7 @@ class AuthConfigurator:
             request: Request = None,  # type: ignore[assignment]
         ) -> dict:
             sessions = await store.get_sessions_for_user(user.sub)
-            refresh_cookie = request.cookies.get(_REFRESH_TOKEN_COOKIE) if request else None
+            refresh_cookie = _read_cookie(request, refresh_cookie_names) if request else None
             current_handle: str | None = None
             if refresh_cookie:
                 try:
@@ -825,6 +918,70 @@ class AuthConfigurator:
             stored.metadata = metadata
             await store.update(stored)
             return {"success": True}
+
+        # ── /oauth/* ───────────────────────────────────────────────────────────
+
+        @router.get("/oauth/{provider}", include_in_schema=True)
+        async def oauth_start(provider: str, request: Request):
+            if not cfg.on_oauth_start:
+                raise HTTPException(status_code=404, detail="OAuth provider not configured")
+            result = await _resolve_hook_result(cfg.on_oauth_start, provider, request)
+            if isinstance(result, str):
+                return RedirectResponse(url=result, status_code=302)
+            if isinstance(result, dict):
+                redirect_to = result.get("redirectTo") or result.get("redirect_to") or result.get("url")
+                if isinstance(redirect_to, str) and redirect_to:
+                    return RedirectResponse(url=redirect_to, status_code=302)
+                return result
+            raise HTTPException(status_code=400, detail="Invalid OAuth start hook response")
+
+        @router.get("/oauth/{provider}/callback", include_in_schema=True)
+        async def oauth_callback(provider: str, request: Request):
+            if not cfg.on_oauth_callback:
+                raise HTTPException(status_code=404, detail="OAuth provider not configured")
+            result = await _resolve_hook_result(cfg.on_oauth_callback, provider, request)
+            redirect_to = "/"
+            login_after = True
+            user_id: str | None = None
+
+            if isinstance(result, str):
+                user_id = result
+            elif isinstance(result, StoredUser):
+                user_id = result.id
+            elif isinstance(result, dict):
+                user_id = result.get("userId") or result.get("user_id")
+                if result.get("redirectTo") or result.get("redirect_to"):
+                    redirect_to = result.get("redirectTo") or result.get("redirect_to")
+                if "login" in result:
+                    login_after = bool(result["login"])
+            elif result is None:
+                raise HTTPException(status_code=400, detail="OAuth callback rejected")
+            else:
+                raise HTTPException(status_code=400, detail="Invalid OAuth callback hook response")
+
+            redirect = RedirectResponse(url=redirect_to, status_code=302)
+            if not login_after:
+                return redirect
+
+            if not user_id:
+                raise HTTPException(status_code=400, detail="OAuth callback did not resolve user")
+            stored = await store.get_by_id(user_id)
+            if not stored:
+                raise HTTPException(status_code=404, detail="User not found")
+            access_token, refresh_token, _ = await _create_session(stored, request)
+            _set_auth_cookies(
+                redirect,
+                access_token,
+                refresh_token,
+                secure=secure,
+                same_site=same_site,
+                access_expires=access_exp,
+                refresh_expires=refresh_exp,
+                domain=domain,
+                access_cookie_name=access_cookie_name,
+                refresh_cookie_name=refresh_cookie_name,
+            )
+            return redirect
 
         # ── /ui/config ───────────────────────────────────────────────────────
 
